@@ -32,8 +32,11 @@ class EaModel(nn.Module):
             total_token,
             depth,
             top_k,
+            expand_k,
             threshold,
             ea_layer_state_dict,
+            n_phase, # draft phase
+            n_accept, # total acceptance length
     ):
 
         super().__init__()
@@ -43,6 +46,9 @@ class EaModel(nn.Module):
         self.vocab_size = base_model.lm_head.weight.shape[0]
         self.base_model_name_or_path = base_model_name_or_path
         self.tokenizer = AutoTokenizer.from_pretrained(self.base_model_name_or_path, use_fast=False)
+        self.expand_k = expand_k
+        self.n_phase = 0
+        self.n_accept = 0
         self.use_eagle3 = use_eagle3
         config = EConfig.from_pretrained(ea_model_path)
         with open(ea_model_path, "r") as f:
@@ -93,7 +99,10 @@ class EaModel(nn.Module):
             total_token=60,
             depth=7,
             top_k=10,
+            expand_k=10,
             threshold=1.0,
+            n_phase=0,
+            n_accept=0,
             **kwargs,
     ):
         # assert Type=="LLaMA" or "Mixtral"
@@ -136,8 +145,11 @@ class EaModel(nn.Module):
             total_token,
             depth,
             top_k,
+            expand_k,
             threshold,
-            ea_layer_state_dict
+            ea_layer_state_dict,
+            n_phase,
+            n_accept
         )
 
         if total_token == -1:
@@ -244,6 +256,7 @@ class EaModel(nn.Module):
         new_token = 0
         max_length = max_length - self.ea_layer.total_tokens - 10
         for idx in range(max_length):
+            self.n_phase += 1 # draft phase(depth + 1)
             # with Timer("all"):
             self.base_model.model.tree_mask = tree_mask
 
@@ -266,6 +279,7 @@ class EaModel(nn.Module):
                 logits, candidates, logits_processor
             )
             # print(accept_length)
+            self.n_accept += accept_length
             # Adjusting the input sequence, draft model forward
             input_ids, draft_tokens, retrieve_indices, tree_mask, tree_position_ids, new_token, hidden_state, sample_token = update_inference_inputs(
                 input_ids,
